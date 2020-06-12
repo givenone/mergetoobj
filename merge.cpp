@@ -7,7 +7,7 @@
 #include "graphics/ivec.h"
 #include "graphics/epsilon.h"
 
-
+static void transform_face(std::vector<graphics::vec3>& points, graphics::ivec3& face, graphics::vec3* Mwt);
 
 static void read_geom_image(
     const std::string& fname, std::vector<graphics::vec3>& points, 
@@ -50,8 +50,9 @@ static void read_geom_image(
 }
 
 static void generate_face(
+    const std::vector<graphics::vec3>& points,
     std::vector<graphics::ivec3>& faces,
-    int w, int h)
+    int& w, int& h)
 {
     //(u, v) : generate 2 faces.
     // -> 0 :: (u, v-1) / 1 :: (u, v) / 2 :: (u+1, v-1) 
@@ -60,14 +61,30 @@ static void generate_face(
     for(int v = 0; v < h -1 ; v++){
         for(int u = 1; u < w; u++){
             int p = v * w + u;
-            faces.push_back(graphics::ivec3(p - 1, p , p + w - 1) );
-            faces.push_back(graphics::ivec3(p + w, p + w - 1, p) );
+
+            if ( (points[p-1] > -1000.0 && points[p-1] > -1000.0 && points[p-1] > -1000.0) &&
+            (points[p] > -1000.0 && points[p] > -1000.0 && points[p] > -1000.0) &&
+            (points[p+w-1] > -1000.0 && points[p+w-1] > -1000.0 && points[p+w-1] > -1000.0))
+            {
+                faces.push_back(graphics::ivec3(p - 1, p , p + w - 1) );
+            }
+
+            if ( (points[p+w] > -1000.0 && points[p+w] > -1000.0 && points[p+w] > -1000.0) &&
+            (points[p+w-1] > -1000.0 && points[p+w-1] > -1000.0 && points[p+w-1] > -1000.0) &&
+            (points[p] > -1000.0 && points[p] > -1000.0 && points[p] > -1000.0))
+            {        
+                faces.push_back(graphics::ivec3(p + w, p + w - 1, p) );
+            }
+            //if((p + w) >= 2048 * 2048 || (p - 1) < 0) printf("error %d %d \n", v, u);
         }
     }
 
+    //printf("w: %d h : %d\n", w, h);
+    //printf("%d %d %d %d\n", faces.size(), faces[0][0], faces[0][1], faces[0][2]);
+
 }
 
-static void Cross( graphics::vec3 v1, graphics::vec3 v2, graphics::vec3& result)
+static void Cross( graphics::vec3& v1, graphics::vec3& v2, graphics::vec3& result)
 {
     result[0] = v1[1] * v2[2] - v1[2] * v2[1];
     result[1] = v2[0] * v1[2] - v1[0] * v2[2];
@@ -76,7 +93,7 @@ static void Cross( graphics::vec3 v1, graphics::vec3 v2, graphics::vec3& result)
 
 static void normalize( graphics::vec3& v)
 {
-    float norm = sqrt((v[0] * v[0]) + (v[1] * v[1]) + (v[2] * v[2])) + graphics::epsilon;
+    float norm = sqrt((v[0] * v[0]) + (v[1] * v[1]) + (v[2] * v[2])) + 1e-8;
     v[0] /= norm;
     v[1] /= norm;
     v[2] /= norm;
@@ -86,22 +103,21 @@ static void transform_tangent_normal(
     std::vector<graphics::vec3>& points, 
     std::vector<graphics::vec3>& norms,
     std::vector<graphics::ivec3>& faces, 
-    int w, int h)
+    int& w, int& h)
 {
 
     graphics::vec3 *tangent_norm = (graphics::vec3*) calloc(sizeof(graphics::vec3), norms.size());
     
     // initialize 3x3 matrix.
-    std::vector<graphics::vec3> Mwt;
-    Mwt.push_back(graphics::vec3());
-    Mwt.push_back(graphics::vec3());
-    Mwt.push_back(graphics::vec3());
+    graphics::vec3 Mwt[3];
 
+    
     int len = faces.size();
-    for (int i = 0; i < len ; i++)
+    for (int i = 0; i < 3/*len*/ ; i++)
     {
         graphics::ivec3 f = faces[i];
         transform_face(points, f, Mwt);
+    
         for(int ver = 0; ver < 3; ver++)
         {
             int ver_idx = f[ver];
@@ -125,7 +141,7 @@ static void transform_tangent_normal(
 
 
 
-static void transform_face(std::vector<graphics::vec3> points, graphics::ivec3 face, std::vector<graphics::vec3>& Mwt)
+static void transform_face(std::vector<graphics::vec3> &points, graphics::ivec3 &face, graphics::vec3* Mwt)
 {
     graphics::vec3 p0 = points[face[0]];
     graphics::vec3 p1 = points[face[1]];
@@ -143,7 +159,7 @@ static void transform_face(std::vector<graphics::vec3> points, graphics::ivec3 f
     float u1y = 0;
 
     float u2x = 0;
-    float u2y = (v1x > 0) ? 1 : -1;
+    float u2y = (v1x >= 0) ? -1 : 1;
 
     // M :: t (M[0]), b (M[1]), n (M[2]) of surface (3 row vector)
 
@@ -184,6 +200,21 @@ static void transform_face(std::vector<graphics::vec3> points, graphics::ivec3 f
             Mwt[0][0] = -Mwt[0][0]; Mwt[0][1] = -Mwt[0][1]; Mwt[0][2] = -Mwt[0][2];
     }
 
+/* test 
+    printf("%f %f %f\n",p0[0], p0[1], p0[2]);
+    printf("%f %f %f\n",p1[0], p1[1], p1[2]);
+    printf("%f %f %f\n",p2[0], p2[1], p2[2]);
+    printf("t : %f %f %f\nb : %f %f %f\nn : %f %f %f\n", 
+    Mwt[0][0], Mwt[0][1], Mwt[0][2],
+    Mwt[1][0], Mwt[1][1], Mwt[1][2],
+    Mwt[2][0], Mwt[2][1], Mwt[2][2]);
+
+    printf("dot test\n t, b\n%f\n t, n\n%f\nb, n\n%f\n",
+    Mwt[0][0] * Mwt[1][0] + Mwt[0][1] * Mwt[1][1] + Mwt[0][2] * Mwt[1][2],
+    Mwt[0][0] * Mwt[2][0] + Mwt[0][1] * Mwt[2][1] + Mwt[0][2] * Mwt[2][2],
+    Mwt[1][0] * Mwt[2][0] + Mwt[1][1] * Mwt[2][1] + Mwt[1][2] * Mwt[2][2]);
+
+*/
     // Transpose
     float M01 = Mwt[1][0], M02 = Mwt[2][0], M12 = Mwt[2][1];
     Mwt[1][0] = Mwt[0][1];
@@ -215,31 +246,53 @@ static bool write_OBJfile(
         { 
             printf("Could not open file"); 
             return false; 
-        } 
+        }
+
+        // fix mtl file name : texture.mtl 
         fprintf(f, "mtllib texture.mtl\n");
+
+        std::vector<bool> mask;
+        std::vector<int> mask_cnt; // maskcnt[i] points were masked out before vertex i.
+        mask_cnt.push_back(0);
         for(int v=0; v<=points.size(); v++)
         {   
-                fprintf(f, formv, points[v][0], points[v][1], points[v][2]);
+                if (points[v][0] > -1000.0 && points[v][1] > -1000.0 && points[v][2] > -1000.0) {
+                    fprintf(f, formv, points[v][0], points[v][1], points[v][2]);
+                    mask.push_back(true);
+                    mask_cnt.push_back(mask_cnt.back());		
+		        }
+                else{
+                    mask.push_back(false);
+                    mask_cnt.push_back(mask_cnt.back() + 1);
+                }
                                 
         }
+        int cnt = 0;
         for(int v=0; v < h; v++)
         {
             for(int u=0; u<w; u++)
             {
-                fprintf(f, formt, (float)u/w, (float)v/h);
+                if(mask[cnt]){
+                    fprintf(f, formt, (float)u/w, 1-(float)v/h);
+                }
+                cnt++;
             }
-        }        
+        }
+        cnt = 0;        
         for(int v=0; v<=norms.size(); v++)
-        {
-                fprintf(f, formn, norms[v][0], norms[v][1], norms[v][2]);
+        {       
+                if(mask[cnt]){
+                    fprintf(f, formn, norms[v][0], norms[v][1], norms[v][2]);
+                }
+                cnt++;
         }
 
-        // usemtl if mtl file exist.
-        //if(tex[0] != '\0') fprintf(f, "%s\n", tex);
         fprintf(f, "usemtl texture\n");
         for(int nF=0; nF<faces.size(); nF++)
         {       
-                int i1 = faces[nF][0] + 1; int i2 = faces[nF][1] + 1; int i3 = faces[nF][2] + 1;
+                int i1 = faces[nF][0] + 1 - mask_cnt[faces[nF][0]]; 
+                int i2 = faces[nF][1] + 1 - mask_cnt[faces[nF][1]]; 
+                int i3 = faces[nF][2] + 1 - mask_cnt[faces[nF][2]];
                 fprintf(f, "f %d/%d/%d %d/%d/%d %d/%d/%d\n",
                 i1, i1, i1,
                 i2, i2, i2,
@@ -248,10 +301,14 @@ static bool write_OBJfile(
 
         fclose(f);
 
-        FILE *f = fopen("texture.mtl", "wt");
-        fprintf(f, "newmtl texture\n");
-        fprintf(f, "map_Kd %s\n", in_texture);
-        fclose(f);
+        // Write Mtl file. (texture.mtl)
+        FILE *ff = fopen("texture.mtl", "wt");
+        if(ff == NULL) return false;
+        fprintf(ff, "newmtl texture\n");
+        fprintf(ff, "map_Kd %s\n", in_texture);
+        fclose(ff);
+
+        return true;
 }
 
 
@@ -361,11 +418,11 @@ int main()
     int precision = 6;
 
     read_geom_image(infile, points, norms, w, h, step);
-    generate_face(faces, w, h);
+    generate_face(points, faces, w, h);
     //transform_tangent_normal(points, norms, faces, w, h);
-    std::string output = "out.ply";
+    std::string output = "out.obj";
     std::string input_texture = "blended_texture.bmp";
 
     write_OBJfile(output.c_str(), input_texture.c_str(), points, norms, faces, w, h, precision);
-    write_PLYfile(output.c_str(), points, norms, color, faces, 1);
-}
+    //write_PLYfile(output.c_str(), points, norms, color, faces, 1);
+}   

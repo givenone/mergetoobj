@@ -2,3 +2,6 @@ graphics/
 geom_img_texture/
 bin/
 .vscode/
+*.obj
+*.bmp
+*.pptx
